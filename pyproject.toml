@@ -6,8 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "tethysapp-sweml"
 version = "1.0"
 description = "App to display 1-km resolution SWE prediction from deep learning models"
-long_description = ""
-keywords = ""
 authors = [
     {name = "Karnesh Jain", email = "kjain1@ua.edu"},
 ]
