@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tethysapp-sweml"
+version = "1.0"
+description = "App to display 1-km resolution SWE prediction from deep learning models"
+long_description = ""
+keywords = ""
+authors = [
+    {name = "Karnesh Jain", email = "kjain1@ua.edu"},
+]
+license = {text = ""}
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["tethysapp*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.js", "*.css", "*.html", "*.png", "*.ico", "*.jpg", "*.gif", "*.svg", "*.json", "*.yml", "*.yaml", "*.txt", "*.xml", "*.csv", "*.geojson", "*.tif", "*.tiff"]
