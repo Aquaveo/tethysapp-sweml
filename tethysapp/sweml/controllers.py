@@ -16,8 +16,9 @@ from tethys_sdk.gizmos import DatePicker, SelectInput
 
 # functions to load AWS data
 import boto3
-from botocore import UNSIGNED
 from botocore.client import Config
+from botocore.session import get_session
+from botocore.credentials import DeferredRefreshableCredentials
 import os
 import logging
 
@@ -39,10 +40,60 @@ else:
     SWEML_AWS_SECRET_ACCESS_KEY = ACCESS['Secret access key'][0]
 
 
-SESSION = boto3.Session(
-    aws_access_key_id = SWEML_AWS_ACCESS_KEY_ID,
-    aws_secret_access_key = SWEML_AWS_SECRET_ACCESS_KEY,
+S3_READER_ROLE_ARN = os.environ.get(
+    'SWEML_S3_READER_ROLE_ARN',
+    'arn:aws:iam::858933856877:role/ciroh-portal-s3-reader',
 )
+S3_READER_EXTERNAL_ID = os.environ.get('SWEML_S3_READER_EXTERNAL_ID')
+logging.info("SWEML S3 reader role: %s", S3_READER_ROLE_ARN)
+
+_STS_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=10,
+    retries={'max_attempts': 2, 'mode': 'standard'},
+)
+
+
+def _assume_reader() -> dict:
+    kwargs = dict(
+        RoleArn=S3_READER_ROLE_ARN,
+        RoleSessionName='sweml-national-snow-model',
+        DurationSeconds=3600,
+    )
+    if S3_READER_EXTERNAL_ID:
+        kwargs['ExternalId'] = S3_READER_EXTERNAL_ID
+    sts = boto3.client(
+        'sts',
+        region_name=os.environ.get('AWS_REGION', 'us-east-1'),
+        config=_STS_CONFIG,
+    )
+    try:
+        creds = sts.assume_role(**kwargs)['Credentials']
+    except Exception:
+        logging.error(
+            "SWEML could not assume %s (external_id set: %s)",
+            S3_READER_ROLE_ARN, bool(S3_READER_EXTERNAL_ID), exc_info=True,
+        )
+        raise
+    return {
+        'access_key': creds['AccessKeyId'],
+        'secret_key': creds['SecretAccessKey'],
+        'token': creds['SessionToken'],
+        'expiry_time': creds['Expiration'].isoformat(),
+    }
+
+
+if SWEML_AWS_ACCESS_KEY_ID and SWEML_AWS_SECRET_ACCESS_KEY:
+    SESSION = boto3.Session(
+        aws_access_key_id=SWEML_AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=SWEML_AWS_SECRET_ACCESS_KEY,
+    )
+else:
+    _botocore_session = get_session()
+    _botocore_session._credentials = DeferredRefreshableCredentials(
+        refresh_using=_assume_reader, method='sts-assume-role'
+    )
+    SESSION = boto3.Session(botocore_session=_botocore_session)
 
 s3 = SESSION.resource('s3')
 
@@ -93,8 +144,8 @@ class swe(MapLayout):
             display_text="Date",
             autoclose=False,
             format="yyyy-mm-dd",
-            start_date="2015-10-01",
-            end_date="today",
+            start_date="2022-10-01",
+            end_date="2024-07-12",
             start_view="year",
             today_button=False,
             initial=initial_date,
@@ -106,7 +157,7 @@ class swe(MapLayout):
             multiple=False,
             options=[
                 ('National Snow Model v1.0', 'SWEMLv1.0'),
-                ('Regional Snow Model v1.0', 'SWEML_regionalv1.0'),
+                # ('Regional Snow Model v1.0', 'SWEML_regionalv1.0'),
             ],
             initial=['National Snow Model v1.0'],
             select2_options={
