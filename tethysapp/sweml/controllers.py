@@ -18,6 +18,8 @@ from tethys_sdk.gizmos import DatePicker, SelectInput
 import boto3
 from botocore import UNSIGNED
 from botocore.client import Config
+from botocore.session import get_session
+from botocore.credentials import DeferredRefreshableCredentials
 import os
 import logging
 
@@ -39,10 +41,41 @@ else:
     SWEML_AWS_SECRET_ACCESS_KEY = ACCESS['Secret access key'][0]
 
 
-SESSION = boto3.Session(
-    aws_access_key_id = SWEML_AWS_ACCESS_KEY_ID,
-    aws_secret_access_key = SWEML_AWS_SECRET_ACCESS_KEY,
+S3_READER_ROLE_ARN = os.environ.get(
+    'SWEML_S3_READER_ROLE_ARN',
+    'arn:aws:iam::858933856877:role/ciroh-portal-s3-reader',
 )
+S3_READER_EXTERNAL_ID = os.environ.get('SWEML_S3_READER_EXTERNAL_ID')
+
+
+def _assume_reader():
+    kwargs = dict(
+        RoleArn=S3_READER_ROLE_ARN,
+        RoleSessionName='sweml-national-snow-model',
+        DurationSeconds=3600,
+    )
+    if S3_READER_EXTERNAL_ID:
+        kwargs['ExternalId'] = S3_READER_EXTERNAL_ID
+    creds = boto3.client('sts').assume_role(**kwargs)['Credentials']
+    return {
+        'access_key': creds['AccessKeyId'],
+        'secret_key': creds['SecretAccessKey'],
+        'token': creds['SessionToken'],
+        'expiry_time': creds['Expiration'].isoformat(),
+    }
+
+
+if SWEML_AWS_ACCESS_KEY_ID and SWEML_AWS_SECRET_ACCESS_KEY:
+    SESSION = boto3.Session(
+        aws_access_key_id=SWEML_AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=SWEML_AWS_SECRET_ACCESS_KEY,
+    )
+else:
+    _botocore_session = get_session()
+    _botocore_session._credentials = DeferredRefreshableCredentials(
+        refresh_using=_assume_reader, method='sts-assume-role'
+    )
+    SESSION = boto3.Session(botocore_session=_botocore_session)
 
 s3 = SESSION.resource('s3')
 
