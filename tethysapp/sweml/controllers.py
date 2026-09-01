@@ -16,7 +16,6 @@ from tethys_sdk.gizmos import DatePicker, SelectInput
 
 # functions to load AWS data
 import boto3
-from botocore import UNSIGNED
 from botocore.client import Config
 from botocore.session import get_session
 from botocore.credentials import DeferredRefreshableCredentials
@@ -46,9 +45,16 @@ S3_READER_ROLE_ARN = os.environ.get(
     'arn:aws:iam::858933856877:role/ciroh-portal-s3-reader',
 )
 S3_READER_EXTERNAL_ID = os.environ.get('SWEML_S3_READER_EXTERNAL_ID')
+logging.info("SWEML S3 reader role: %s", S3_READER_ROLE_ARN)
+
+_STS_CONFIG = Config(
+    connect_timeout=5,
+    read_timeout=10,
+    retries={'max_attempts': 2, 'mode': 'standard'},
+)
 
 
-def _assume_reader():
+def _assume_reader() -> dict:
     kwargs = dict(
         RoleArn=S3_READER_ROLE_ARN,
         RoleSessionName='sweml-national-snow-model',
@@ -56,7 +62,19 @@ def _assume_reader():
     )
     if S3_READER_EXTERNAL_ID:
         kwargs['ExternalId'] = S3_READER_EXTERNAL_ID
-    creds = boto3.client('sts').assume_role(**kwargs)['Credentials']
+    sts = boto3.client(
+        'sts',
+        region_name=os.environ.get('AWS_REGION', 'us-east-1'),
+        config=_STS_CONFIG,
+    )
+    try:
+        creds = sts.assume_role(**kwargs)['Credentials']
+    except Exception:
+        logging.error(
+            "SWEML could not assume %s (external_id set: %s)",
+            S3_READER_ROLE_ARN, bool(S3_READER_EXTERNAL_ID), exc_info=True,
+        )
+        raise
     return {
         'access_key': creds['AccessKeyId'],
         'secret_key': creds['SecretAccessKey'],
